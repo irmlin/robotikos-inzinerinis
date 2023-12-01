@@ -14,13 +14,13 @@ def sysCall_init():
     self.distanceYMoved = 0.0
     self.sampleRate = 0.1
     self.mapEnvironment = np.zeros((100000, 100000), dtype=int)
-    self.robotOffsetPosInMap= (5000, 5000, 0)
+    self.robotOffsetPosInMap= (50000, 50000, 0)
 
     # Movement
     self.minMaxSpeed = [50*math.pi/180, 300*math.pi/180] # Min and max speeds for each motor
     self.mode = 0 # mode = 0: go forward; mode = 1: turn to new orientation; mode = 2: return to start
-    self.RobotOrientation = 0.0 # current orientation of the robot in degrees
-    self.TriggerIR = 0 # counter for detecting the end/start with IR sensor
+    self.RobotOrientation = 0.0 # orientation that the robot is supposed to face in degrees
+    self.TriggerIR = 0 # Counter for reseting the IR sensor, it is also used to prevent the robot in geting stuck in forever left turn loops
     # -----------------------------------------------------------
 
     sim = require('sim')
@@ -74,12 +74,11 @@ def sysCall_actuation():
         restart()                   # if at the finish: comence shortest path search and return to start,
                                     # since this is not implemented yet restart the robot and let it go again
 
-    
 def move():
     resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
     resultLeft, *_ = sim.readProximitySensor(self.proxSensorLeft) # Read the proximity sensor
-    if (resultLeft == 0 and self.TriggerIR >= 10) or (resultFront == 1 and dist < 0.16):
-        sim.setJointTargetVelocity(self.leftMotor, 0)
+    if (resultLeft == 0 and self.TriggerIR >= 25) or (resultFront == 1 and dist < 0.16):    # if robot can turn left or a wall is close enough in front
+        sim.setJointTargetVelocity(self.leftMotor, 0)                                       # of the robot stop and start turning
         sim.setJointTargetVelocity(self.rightMotor, 0)
         self.TriggerIR = 0
         updateMevement()
@@ -96,14 +95,14 @@ def turn():
         self.RobotOrientation = -90
     if self.RobotOrientation == -270.0:           
         self.RobotOrientation = 90.0
-    if self.RobotOrientation == 180 and getOrrientation() < 0:
-        self.RobotOrientation = -180
+    if self.RobotOrientation == 180 and getOrrientation() < 0:     # if needed orientation is -180 or 180 degrees, set it to whichever one is closer
+        self.RobotOrientation = -180                               # to the current orientation, since -180 == 180 in this simulation
     if self.RobotOrientation == -180 and getOrrientation() > 0:
         self.RobotOrientation = 180
-    if np.abs(self.RobotOrientation) == 360:
+    if np.abs(self.RobotOrientation) == 360:    # 360 and -360 degrees is 0 degrees in this simulation
         self.RobotOrientation = 0
         
-    print(f"new Orientation {self.RobotOrientation}, curr Orientation {getOrrientation()}")
+    # print(f"new Orientation {self.RobotOrientation}, curr Orientation {getOrrientation()}")
     if np.abs(getOrrientation() - self.RobotOrientation) > 0.25:
         if np.abs(getOrrientation() - self.RobotOrientation)>350:
             sim.setJointTargetVelocity(self.leftMotor, -self.speed/4)                       
@@ -133,6 +132,7 @@ def updateMevement():
     resultFront, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
     resultLeft, *_ = sim.readProximitySensor(self.proxSensorLeft) # Read the proximity sensor
     resultRight, *_ = sim.readProximitySensor(self.proxSensorRight) # Read the proximity sensor
+    self.mode = 1
     
     #print(f"front : {resultFront}")
     #print(f"left : {resultLeft}")
@@ -140,19 +140,16 @@ def updateMevement():
     
     if resultLeft == resultRight == resultFront == 1:           # if all proximity sensors are trigered, turn around
         print("turn around")
-        self.mode = 1
-        self.RobotOrientation = self.RobotOrientation + 180.0   # turn to either side for twice the 90 degree rotation time
+        self.RobotOrientation = self.RobotOrientation + 180.0   # turn to either side for 180 degrees
         return
-    
-    self.mode = 1
-    if resultRight == 1:                                        # if the right proximity sensor is trigered, turn left
-        print("turn left")
         
-        self.RobotOrientation = self.RobotOrientation + 90.0    # 90 degree rotation to the left is +90 degrees to curent orrientation
+    if resultLeft == 1:                                         # if the right proximity sensor is trigered, turn left
+        print("turn right") 
+        self.RobotOrientation = self.RobotOrientation - 90.0    # 90 degree rotation to the right is -90 degrees to curent orrientation
         return
     
-    print("turn right")                                                 # if none of the other conditions are met, turn right
-    self.RobotOrientation = self.RobotOrientation - 90.0                # this will triger if none of the side sensors are trigered, 
+    print("turn left")                                                  # if none of the other conditions are met, turn left
+    self.RobotOrientation = self.RobotOrientation + 90.0                # this will triger if none of the side sensors are trigered, 
     return                                                              # or only the left sensor is trigered
 
     
@@ -164,7 +161,7 @@ def checkIfFinish():
     if result >= 0:
         sensorReading = (data[10] < 0.5)  # Indexing adjusted for 0-based Python
     
-    if not sensorReading and self.TriggerIR < 10:
+    if not sensorReading and self.TriggerIR < 50:
         self.TriggerIR += 1
     if sensorReading and self.TriggerIR >= 5:
         print("returning to start")
