@@ -15,13 +15,12 @@ def sysCall_init():
     self.sampleRate = 0.1
     self.mapEnvironment = np.zeros((10000, 10000), dtype=int)
     self.robotOffsetPosInMap= (5000, 5000, 0)
-    
+
     # Movement
     self.minMaxSpeed = [50*math.pi/180, 300*math.pi/180] # Min and max speeds for each motor
-    self.tickFront = 2.5 # Tells whether bubbleRob is in forward or backward mode
-    self.tickLeft = 0
-    self.tickRight = 0
-    self.mode = 0
+    self.mode = 0 # mode = 0: go forward; mode = 1: turn to new orientation; mode = 2: return to start
+    self.RobotOrientation = 0.0 # current orientation of the robot in degrees
+    self.TriggerIR = 0 # counter for detecting the end/start with IR sensor
     # -----------------------------------------------------------
 
     sim = require('sim')
@@ -32,12 +31,15 @@ def sysCall_init():
     self.proxSensorFront = sim.getObject("./Prox_Front")
     self.proxSensorRight = sim.getObject("./Prox_Right")
     self.proxSensorLeft = sim.getObject("./Prox_Left")
+    self.infraRedSensor = sim.getObject("./InfraRed")
+    
     self.robotCollection = sim.createCollection(0)
     sim.addItemToCollection(self.robotCollection, sim.handle_tree, self.bubbleRobBase, 0)
     self.distanceSegment = sim.addDrawingObject(sim.drawing_lines, 4, 0, -1, 1, [0, 1, 0])
     self.robotTrace = sim.addDrawingObject(sim.drawing_linestrip + sim.drawing_cyclic, 2, 0, -1, 200, [1, 1, 0], None, None, [1, 1, 0])
     self.graph = sim.getObject('./Graph')
     # sim.destroyGraphCurve(self.graph, -1)
+    
     self.distStream = sim.addGraphStream(self.graph, 'bubbleRob clearance', 'm', 0, [1, 0, 0])
     # Create the custom UI:
     xml = '<ui title="' + sim.getObjectAlias(self.bubbleRobBase, 1) + ' speed" closeable="false" resizeable="false" activate="false">'
@@ -61,47 +63,112 @@ def speedChange_callback(ui, id, newVal):
 
 
 def sysCall_actuation(): 
-    move()
-    detect()
+    if self.mode < 2:               # check if we are at finish, if not do usual routine
+        if self.mode == 0:          
+            move()
+            detect()
+            checkIfFinish()
+        else:
+            turn()
+    else:
+        restart()                   # if at the finish: comence shortest path search and return to start,
+                                    # since this is not implemented yet restart the robot and let it go again
 
+    
 def move():
-    #print(f"sim {sim.getSimulationTime()}")
-    #print(f"forward {self.tickFront}")
-    #print(f"right {self.tickRight}")
-    #print(f"left {self.tickLeft}")
-    
-    if self.mode == 0:
-        if sim.getSimulationTime() < self.tickFront:
-            sim.setJointTargetVelocity(self.leftMotor, self.speed/1.5)
-            sim.setJointTargetVelocity(self.rightMotor, self.speed/1.5)
-        else:
-            sim.setJointTargetVelocity(self.leftMotor, 0)
-            sim.setJointTargetVelocity(self.rightMotor, 0)
-            update()
-    
-    if self.mode == 1:
-        # Turn right
-        if sim.getSimulationTime() < self.tickRight:
-            print("right")
-            sim.setJointTargetVelocity(self.leftMotor, self.speed/2)
-            sim.setJointTargetVelocity(self.rightMotor, -self.speed)
-        else:
-            sim.setJointTargetVelocity(self.leftMotor, 0)
-            sim.setJointTargetVelocity(self.rightMotor, 0)
-            update()
-            
-    if self.mode == 2:         
-        # Turn left
-        if sim.getSimulationTime() < self.tickLeft:
-            print("left")
-            sim.setJointTargetVelocity(self.leftMotor, -self.speed/2)
-            sim.setJointTargetVelocity(self.rightMotor, self.speed)
-        else:
-            sim.setJointTargetVelocity(self.leftMotor, 0)
-            sim.setJointTargetVelocity(self.rightMotor, 0)
-            update()
+    resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor]
+    if resultFront == 1 and dist < 0.10:
+        sim.setJointTargetVelocity(self.leftMotor, 0)
+        sim.setJointTargetVelocity(self.rightMotor, 0)
+        updateMevement()
+    else:
+        sim.setJointTargetVelocity(self.leftMotor, self.speed)
+        sim.setJointTargetVelocity(self.rightMotor, self.speed)
+        
+    if np.abs(np.abs(getOrrientation()) - np.abs(self.RobotOrientation)) > 0.5: # if robots orintation strays to far away from needed, 
+        self.mode = 1                                                           # go to turning mode for corrections
 
+def turn():
+    
+    if self.RobotOrientation == 270.0:          # correct orientations since robot's orentiation can only be : (-180, 180)
+        self.RobotOrientation = -90
+    if self.RobotOrientation == -270.0:           
+        self.RobotOrientation = 90.0
+        
+    # print(f"new Orientation {self.RobotOrientation}, curr Orientation {getOrrientation()}")
+    if np.abs(getOrrientation() - self.RobotOrientation) > 0.25:
+        if np.abs(getOrrientation() - self.RobotOrientation)>350:
+            sim.setJointTargetVelocity(self.leftMotor, -self.speed/4)                       
+            sim.setJointTargetVelocity(self.rightMotor, self.speed/4)     # turn left, for correction to bottom 180 == -180
+        elif self.RobotOrientation == 90 and getOrrientation() < -170:
+            sim.setJointTargetVelocity(self.leftMotor, self.speed/4)      # turn right, because turning right is faster -180 -> 90
+            sim.setJointTargetVelocity(self.rightMotor, -self.speed/4)
+        elif self.RobotOrientation == -90 and getOrrientation() > 170:
+            sim.setJointTargetVelocity(self.leftMotor, -self.speed/4)      # turn left, because turning left is faster 180 -> -90
+            sim.setJointTargetVelocity(self.rightMotor, self.speed/4)
+        elif getOrrientation() <  self.RobotOrientation:
+            sim.setJointTargetVelocity(self.leftMotor, -self.speed/4)                       
+            sim.setJointTargetVelocity(self.rightMotor, self.speed/4)     # turn left, because needed orientation is higher than current
+        else:
+            sim.setJointTargetVelocity(self.leftMotor, self.speed/4)      # turn right, because needed orientation is lower than current
+            sim.setJointTargetVelocity(self.rightMotor, -self.speed/4)
+    else:
+        print(f"current orientation: {getOrrientation()}")
+        sim.setJointTargetVelocity(self.leftMotor, 0)
+        sim.setJointTargetVelocity(self.rightMotor, 0)
+        self.mode = 0                                                   # if rotation is no longer needed return to "move forward" mode
+        
+def getOrrientation():
+    return sim.getObjectOrientation(self.bubbleRobBase)[2] * 57.2957795 # return the orrientation of the robot in degrees
 
+def updateMevement():
+    resultFront, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
+    resultLeft, *_ = sim.readProximitySensor(self.proxSensorLeft) # Read the proximity sensor
+    resultRight, *_ = sim.readProximitySensor(self.proxSensorRight) # Read the proximity sensor
+    
+    #print(f"front : {resultFront}")
+    #print(f"left : {resultLeft}")
+    #print(f"right : {resultRight}")
+    
+    if resultLeft == resultRight == resultFront == 1:           # if all proximity sensors are trigered, turn around
+        print("turn around")
+        self.mode = 1
+        self.RobotOrientation = self.RobotOrientation + 180.0   # turn to either side for twice the 90 degree rotation time
+        return
+    
+    self.mode = 1
+    if resultRight == 1:                                        # if the right proximity sensor is trigered, turn left
+        print("turn left")
+        
+        self.RobotOrientation = self.RobotOrientation + 90.0    # 90 degree rotation to the left is +90 degrees to curent orrientation
+        return
+    
+    print("turn right")                                                 # if none of the other conditions are met, turn right
+    self.RobotOrientation = self.RobotOrientation - 90.0                # this will triger if none of the side sensors are trigered, 
+    return                                                              # or only the left sensor is trigered
+
+    
+def checkIfFinish():
+    result = sim.readVisionSensor(self.infraRedSensor)
+    sensorReading = False
+    if isinstance(result, tuple):
+        result, data, *_ = result
+    if result >= 0:
+        sensorReading = (data[10] < 0.5)  # Indexing adjusted for 0-based Python
+    
+    if not sensorReading and self.TriggerIR < 10:
+        self.TriggerIR += 1
+    if sensorReading and self.TriggerIR >= 5:
+        print("returning to start")
+        self.mode = 2
+
+def restart():
+    print("reached the end")                                # TODO implement 
+    print("turning around and continuing traversal")
+    self.mode = 1
+    self.RobotOrientation = self.RobotOrientation + 180.0
+    self.TriggerIR = 0
+    
 def detect():
     currentRobotCoords = sim.getObjectPosition(self.bubbleRobBase)
     if self.lastRobotCoords is None:
@@ -120,27 +187,6 @@ def detect():
         self.distanceYMoved = 0.0
     
     self.lastRobotCoords = currentRobotCoords
-
-
-def update():
-    resultFront, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
-    resultLeft, *_ = sim.readProximitySensor(self.proxSensorLeft) # Read the proximity sensor
-    resultRight, *_ = sim.readProximitySensor(self.proxSensorRight) # Read the proximity sensor
-    
-    #print(f"front : {resultFront}")
-    #print(f"left : {resultLeft}")
-    #print(f"right : {resultRight}")
-    
-    if resultFront == 0:
-        self.mode = 0
-        self.tickFront = sim.getSimulationTime()+ 2.5
-    else:
-        if resultLeft == 1:
-            self.mode = 1
-            self.tickRight = sim.getSimulationTime()+ 1.75
-        elif resultRight == 1:
-            self.mode = 2
-            self.tickLeft = sim.getSimulationTime()+ 1.75
 
 def sampleEnvironmentToMemory(currentRobotCoords):
     print('Sampling proximity!')
