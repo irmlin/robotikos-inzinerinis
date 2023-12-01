@@ -13,7 +13,7 @@ def sysCall_init():
     self.distanceXMoved = 0.0
     self.distanceYMoved = 0.0
     self.sampleRate = 0.1
-    self.mapEnvironment = np.zeros((10000, 10000), dtype=int)
+    self.mapEnvironment = np.zeros((100000, 100000), dtype=int)
     self.robotOffsetPosInMap= (5000, 5000, 0)
 
     # Movement
@@ -76,10 +76,12 @@ def sysCall_actuation():
 
     
 def move():
-    resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor]
-    if resultFront == 1 and dist < 0.10:
+    resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
+    resultLeft, *_ = sim.readProximitySensor(self.proxSensorLeft) # Read the proximity sensor
+    if (resultLeft == 0 and self.TriggerIR >= 10) or (resultFront == 1 and dist < 0.16):
         sim.setJointTargetVelocity(self.leftMotor, 0)
         sim.setJointTargetVelocity(self.rightMotor, 0)
+        self.TriggerIR = 0
         updateMevement()
     else:
         sim.setJointTargetVelocity(self.leftMotor, self.speed)
@@ -94,8 +96,14 @@ def turn():
         self.RobotOrientation = -90
     if self.RobotOrientation == -270.0:           
         self.RobotOrientation = 90.0
+    if self.RobotOrientation == 180 and getOrrientation() < 0:
+        self.RobotOrientation = -180
+    if self.RobotOrientation == -180 and getOrrientation() > 0:
+        self.RobotOrientation = 180
+    if np.abs(self.RobotOrientation) == 360:
+        self.RobotOrientation = 0
         
-    # print(f"new Orientation {self.RobotOrientation}, curr Orientation {getOrrientation()}")
+    print(f"new Orientation {self.RobotOrientation}, curr Orientation {getOrrientation()}")
     if np.abs(getOrrientation() - self.RobotOrientation) > 0.25:
         if np.abs(getOrrientation() - self.RobotOrientation)>350:
             sim.setJointTargetVelocity(self.leftMotor, -self.speed/4)                       
