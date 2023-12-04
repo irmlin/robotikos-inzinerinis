@@ -28,6 +28,12 @@ class Node:
             
     def add_neighbour(self, neighbour_id: int):
         self.neighbours.append(neighbour_id)
+        
+    def __repr__(self):
+        return f"<Node x={self.x} y={self.y}>"
+        
+    def get_coords(self):
+        return (self.x, self.y)
 
 
 class MazeGraph:
@@ -119,9 +125,15 @@ def sysCall_init():
 
     # Movement
     self.minMaxSpeed = [50*math.pi/180, 300*math.pi/180] # Min and max speeds for each motor
-    self.mode = 0 # mode = 0: go forward; mode = 1: turn to new orientation; mode = 2: return to start
+    self.mode = 0 # mode = 0: go forward; mode = 1: turn to new orientation; mode = 2: return to start; mode = 3: move_back; mode =4: turn_back; mode =5 stop
     self.RobotOrientation = 0.0 # orientation that the robot is supposed to face in degrees
     self.TriggerIR = 0 # Counter for reseting the IR sensor, it is also used to prevent the robot in geting stuck in forever left turn loops
+    
+    self.PathBack = []
+    self.currPathbackNode = 0
+    self.nextIsEnd = False
+    self.currDestination = 0
+    self.dirr = 0
     # -----------------------------------------------------------
 
     sim = require('sim')
@@ -164,15 +176,24 @@ def speedChange_callback(ui, id, newVal):
 
 
 def sysCall_actuation(): 
-    if self.mode < 2:               # check if we are at finish, if not do usual routine
-        if self.mode == 0:          
-            move()
-            measureMovedDistance()
-            checkIfFinish()
-        else:
-            turn()
+    if self.mode == 5:
+        print("reached the end")
     else:
-        returnToStart()                   # if at the finish: comence shortest path search and return to start
+        if self.mode < 2:               # check if we are at finish, if not do usual routine
+            if self.mode == 0:          
+                move()
+                measureMovedDistance()
+                checkIfFinish()
+            else:
+                turn(0)
+        else:
+            if self.mode == 2:
+                returnToStart()                   # if at the finish: comence shortest path search and return to start
+            else:
+                if self.mode == 3:
+                    back_move()
+                else:
+                    turn(3)
 
 def move():
     resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
@@ -189,7 +210,53 @@ def move():
     if np.abs(np.abs(getOrrientation()) - np.abs(self.RobotOrientation)) > 0.5: # if robots orintation strays to far away from needed, 
         self.mode = 1                                                           # go to turning mode for corrections
 
-def turn():
+def back_move():
+    currLocation = sim.getObjectPosition(self.bubbleRobBase)[:2]
+    if np.abs(currLocation[self.dirr] - self.currDestination[self.dirr]) <0.05:
+        sim.setJointTargetVelocity(self.leftMotor, 0)                                       
+        sim.setJointTargetVelocity(self.rightMotor, 0)
+        self.currPathbackNode += 1
+        back_update()
+    else:
+        sim.setJointTargetVelocity(self.leftMotor, self.speed)
+        sim.setJointTargetVelocity(self.rightMotor, self.speed)
+    
+    if np.abs(np.abs(getOrrientation()) - np.abs(self.RobotOrientation)) > 0.5: # if robots orintation strays to far away from needed, 
+        self.mode = 4  
+    
+def back_update():
+    
+    if self.nextIsEnd:
+        self.mode = 5
+    else:
+        n1 = self.PathBack[self.currPathbackNode]
+        n2 = self.PathBack[self.currPathbackNode + 1]
+        
+        if n2 == self.startNodeId:
+            self.nextIsEnd = True
+        
+        coords1 = self.mapGraph.graph[n1].get_coords()
+        coords2 = self.mapGraph.graph[n2].get_coords()
+        self.currDestination = coords2
+        print(f"moving to {self.currDestination}")
+                                                                                   # +
+        x_dif = coords1[0] - coords2[0]                                            # x /\ , y +<>-
+        y_dif = coords1[1] - coords2[1]                                            # - \/
+        if np.abs(x_dif) > np.abs(y_dif):
+            if x_dif > 0:
+                self.RobotOrientation = -180
+            else:
+                self.RobotOrientation = 0
+            self.dirr = 0
+        else:
+            if y_dif > 0:
+                self.RobotOrientation = -90
+            else:
+                self.RobotOrientation = 90
+            self.dirr = 1
+        self.mode = 4
+    
+def turn(prev_mode):
     
     if self.RobotOrientation == 270.0:          # correct orientations since robot's orentiation can only be : (-180, 180)
         self.RobotOrientation = -90
@@ -223,7 +290,7 @@ def turn():
         print(f"current orientation: {getOrrientation()}")
         sim.setJointTargetVelocity(self.leftMotor, 0)
         sim.setJointTargetVelocity(self.rightMotor, 0)
-        self.mode = 0                                                   # if rotation is no longer needed return to "move forward" mode
+        self.mode = prev_mode                                              # if rotation is no longer needed return to "move forward" mode
         
 def getOrrientation():
     return sim.getObjectOrientation(self.bubbleRobBase)[2] * 57.2957795 # return the orrientation of the robot in degrees
@@ -277,7 +344,11 @@ def calculateShortestDistance():
     return distance, path
     
 def returnToStart():
+    sim.setJointTargetVelocity(self.leftMotor, 0)                                       
+    sim.setJointTargetVelocity(self.rightMotor, 0)
     distance, path = calculateShortestDistance()
+    self.PathBack = np.flip(np.array(path))
+    back_update()
 
 def restart():
     print("reached the end")                                # TODO implement 
