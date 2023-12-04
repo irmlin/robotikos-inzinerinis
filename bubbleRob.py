@@ -12,8 +12,8 @@ def sysCall_init():
     self.lastRobotCoords = None
     self.distanceXMoved = 0.0
     self.distanceYMoved = 0.0
-    self.sampleRate = 0.1
-    self.mapEnvironment = np.zeros((100000, 100000), dtype=int)
+    self.sampleRate = 0.05
+    self.mapEnvironment = np.zeros((10000, 10000), dtype=int)
     self.robotOffsetPosInMap= (50000, 50000, 0)
 
     # Movement
@@ -66,7 +66,7 @@ def sysCall_actuation():
     if self.mode < 2:               # check if we are at finish, if not do usual routine
         if self.mode == 0:          
             move()
-            detect()
+            measureMovedDistance()
             checkIfFinish()
         else:
             turn()
@@ -174,7 +174,7 @@ def restart():
     self.RobotOrientation = self.RobotOrientation + 180.0
     self.TriggerIR = 0
     
-def detect():
+def measureMovedDistance():
     currentRobotCoords = sim.getObjectPosition(self.bubbleRobBase)
     if self.lastRobotCoords is None:
         self.lastRobotCoords = currentRobotCoords
@@ -207,27 +207,30 @@ def sampleEnvironmentToMemory(currentRobotCoords):
     coordsSensorLeft = sim.getObjectPosition(self.proxSensorLeft)
     
     # Direction vector for each sensor
-    vFront = -1*  (np.array(coordsSensorFront) - np.array(currentRobotCoords)) / (np.linalg.norm(coordsSensorFront) - np.linalg.norm(currentRobotCoords))
-    vRight = (np.array(coordsSensorRight) - np.array(currentRobotCoords)) / (np.linalg.norm(coordsSensorRight) - np.linalg.norm(currentRobotCoords))
-    vLeft = -1* (np.array(coordsSensorLeft) - np.array(currentRobotCoords)) / (np.linalg.norm(coordsSensorLeft) - np.linalg.norm(currentRobotCoords))
+    vFront = (np.array(coordsSensorFront) - np.array(currentRobotCoords))
+    vFront /= np.linalg.norm(vFront)
+    vRight = (np.array(coordsSensorRight) - np.array(currentRobotCoords))
+    vRight /= np.linalg.norm(vRight)
+    vLeft = (np.array(coordsSensorLeft) - np.array(currentRobotCoords))
+    vLeft /= np.linalg.norm(vLeft)
     
     points = []
     if obstacleFront:
         p = coordsSensorFront + vFront * distFront
-        print(f'Detected obstacle front! {p}')
+        print(f'Detected obstacle front! {p}, distance {distFront}, sensor {coordsSensorFront}, vector {vFront}')
         points.append(p)
     if obstacleRight:
         p = coordsSensorRight + vRight * distRight
-        print(f'Detected obstacle right! {p}')
+        print(f'Detected obstacle right! {p}, distance {distRight}, sensor {coordsSensorRight}, vector {vRight}')
         points.append(p)
     if obstacleLeft:
         p = coordsSensorLeft + vLeft * distLeft
-        print(f'Detected obstacle left! {p}')
+        print(f'Detected obstacle left! {p}, distance {distLeft}, sensor {coordsSensorLeft}, vector {vLeft}')
         points.append(p)
     
     for point in points:
         pointPosInMap = [int(p * 1000 + self.robotOffsetPosInMap[i]) for i, p in enumerate(point)]
-        self.mapEnvironment[pointPosInMap[1], pointPosInMap[0]] = 1
+        #self.mapEnvironment[pointPosInMap[1], pointPosInMap[0]] = 1
     #print(self.mapEnvironment)
 
 def sysCall_cleanup(): 
