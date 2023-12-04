@@ -2,6 +2,7 @@
 
 import math
 import numpy as np
+import cv2
 
 def sysCall_init():
     # This is executed exactly once, the first time this script is executed
@@ -12,9 +13,10 @@ def sysCall_init():
     self.lastRobotCoords = None
     self.distanceXMoved = 0.0
     self.distanceYMoved = 0.0
-    self.sampleRate = 0.05
-    self.mapEnvironment = np.zeros((10000, 10000), dtype=int)
-    self.robotOffsetPosInMap= (50000, 50000, 0)
+    self.sampleRate = 0.001
+    self.mapEnvironment = np.zeros((10000, 10000), dtype=np.int8)
+    self.robotOffsetPosInMap= (5000, 5000, 0)
+    self.mapSaveCounter = 0
 
     # Movement
     self.minMaxSpeed = [50*math.pi/180, 300*math.pi/180] # Min and max speeds for each motor
@@ -197,9 +199,9 @@ def sampleEnvironmentToMemory(currentRobotCoords):
     print('Sampling proximity!')
     print(f'Current robot coords: {currentRobotCoords}')
     # Read proximity sensors
-    obstacleFront, distFront, *_ = sim.readProximitySensor(self.proxSensorFront)
-    obstacleRight, distRight, *_ = sim.readProximitySensor(self.proxSensorRight)
-    obstacleLeft, distLeft, *_ = sim.readProximitySensor(self.proxSensorLeft)
+    obstacleFront, distFront, pf, _, nFront = sim.readProximitySensor(self.proxSensorFront)
+    obstacleRight, distRight, pr, _, nRight = sim.readProximitySensor(self.proxSensorRight)
+    obstacleLeft, distLeft, pl, _, nLeft = sim.readProximitySensor(self.proxSensorLeft)
     
     # Read proximity sensors' coords
     coordsSensorFront = sim.getObjectPosition(self.proxSensorFront)
@@ -217,21 +219,24 @@ def sampleEnvironmentToMemory(currentRobotCoords):
     points = []
     if obstacleFront:
         p = coordsSensorFront + vFront * distFront
-        print(f'Detected obstacle front! {p}, distance {distFront}, sensor {coordsSensorFront}, vector {vFront}')
+        print(f'Detected obstacle front! {p}, distance {distFront}, vector {vFront}')
         points.append(p)
     if obstacleRight:
         p = coordsSensorRight + vRight * distRight
-        print(f'Detected obstacle right! {p}, distance {distRight}, sensor {coordsSensorRight}, vector {vRight}')
+        print(f'Detected obstacle right! {p}, distance {distRight}, vector {vRight}')
         points.append(p)
     if obstacleLeft:
         p = coordsSensorLeft + vLeft * distLeft
-        print(f'Detected obstacle left! {p}, distance {distLeft}, sensor {coordsSensorLeft}, vector {vLeft}')
+        print(f'Detected obstacle left! {p}, distance {distLeft}, vector {vLeft}')
         points.append(p)
     
     for point in points:
         pointPosInMap = [int(p * 1000 + self.robotOffsetPosInMap[i]) for i, p in enumerate(point)]
-        #self.mapEnvironment[pointPosInMap[1], pointPosInMap[0]] = 1
-    #print(self.mapEnvironment)
+        print(pointPosInMap)
+        self.mapEnvironment[pointPosInMap[0]:pointPosInMap[0]+50, pointPosInMap[1]:pointPosInMap[1]+50] = 1
+    self.mapSaveCounter += 1
+    if self.mapSaveCounter % 50 == 0:
+        cv2.imwrite(f'C:\\Users\\irman\\OneDrive\\Stalinis kompiuteris\\7\\robotika\\robotikos-inzinerinis\\maps\\map{self.mapSaveCounter}.jpg', self.mapEnvironment*255)
 
 def sysCall_cleanup(): 
     simUI.destroy(self.ui)
