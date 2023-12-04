@@ -3,6 +3,8 @@
 import math
 import numpy as np
 import cv2
+import heapq
+import pickle
 
 
 # Graph logic
@@ -59,6 +61,40 @@ class MazeGraph:
         self.last_active_node_id = new_node_id
         self.last_inserted_node_id =  new_node_id
         
+    def get_last_active_node_id(self):
+        return self.last_active_node_id
+        
+    def dijkstra(self, start_id, end_id):
+        # Initialize distances and paths to all nodes
+        distances = {node_id: float('inf') for node_id in self.graph}
+        distances[start_id] = 0
+
+        # Priority queue for nodes based on their distances
+        priority_queue = [(0, start_id)]
+
+        # Dictionary to store the shortest path to each node
+        paths = {node_id: [] for node_id in self.graph}
+        paths[start_id] = [start_id]
+
+        while priority_queue:
+            current_distance, current_node_id = heapq.heappop(priority_queue)
+            # Check if the current node has already been visited
+            if current_distance > distances[current_node_id]:
+                continue
+
+            current_node = self.graph[current_node_id]
+
+            # Update distances and paths for neighbors
+            for neighbor_id in current_node.neighbours:
+                new_distance = distances[current_node_id] + current_node.distance(self.graph[neighbor_id])
+                if new_distance < distances[neighbor_id]:
+                    distances[neighbor_id] = new_distance
+                    heapq.heappush(priority_queue, (new_distance, neighbor_id))
+                    paths[neighbor_id] = paths[current_node_id] + [neighbor_id]
+        
+        # Return the distance and path to the end node
+        return distances[end_id], paths[end_id]
+        
     def __str__(self):
         # Print graph structure
         graph_str = ""
@@ -77,10 +113,9 @@ def sysCall_init():
     self.distanceXMoved = 0.0
     self.distanceYMoved = 0.0
     self.sampleRate = 0.01
-    self.mapEnvironment = np.zeros((10000, 10000), dtype=np.int8)
-    self.robotOffsetPosInMap= (5000, 5000, 0)
-    self.mapSaveCounter = 0
     self.mapGraph = MazeGraph()
+    self.startNodeId = None
+    self.finishNodeId = None
 
     # Movement
     self.minMaxSpeed = [50*math.pi/180, 300*math.pi/180] # Min and max speeds for each motor
@@ -137,8 +172,7 @@ def sysCall_actuation():
         else:
             turn()
     else:
-        restart()                   # if at the finish: comence shortest path search and return to start,
-                                    # since this is not implemented yet restart the robot and let it go again
+        returnToStart()                   # if at the finish: comence shortest path search and return to start
 
 def move():
     resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
@@ -226,12 +260,24 @@ def checkIfFinish():
         result, data, *_ = result
     if result >= 0:
         sensorReading = (data[10] < 0.5)  # Indexing adjusted for 0-based Python
-    
+
     if not sensorReading and self.TriggerIR < 50:
         self.TriggerIR += 1
     if sensorReading and self.TriggerIR >= 5:
         print("returning to start")
         self.mode = 2
+
+def calculateShortestDistance():
+    self.finishNodeId = self.mapGraph.get_last_active_node_id()
+    if self.startNodeId is None:
+        self.startNodeId = 0
+    
+    distance, path = self.mapGraph.dijkstra(self.startNodeId, self.finishNodeId)
+    print(f'Shortest distance: {distance}, path: {path}')
+    return distance, path
+    
+def returnToStart():
+    distance, path = calculateShortestDistance()
 
 def restart():
     print("reached the end")                                # TODO implement 
@@ -244,6 +290,9 @@ def measureMovedDistance():
     currentRobotCoords = sim.getObjectPosition(self.bubbleRobBase)
     if self.lastRobotCoords is None:
         self.lastRobotCoords = currentRobotCoords
+        # Insert start node to graph
+        sampleEnvironmentToMemory(currentRobotCoords)
+        self.startNodeId = 0
         return
         
     self.distanceXMoved += abs(currentRobotCoords[0] - self.lastRobotCoords[0])
