@@ -176,24 +176,21 @@ def speedChange_callback(ui, id, newVal):
 
 
 def sysCall_actuation(): 
-    if self.mode == 5:
-        print("reached the end")
+    if self.mode == 0:
+        move()
+        measureMovedDistance()
+        checkIfFinish()             # check if we are at finish, if not do usual routine
+    elif self.mode == 1:
+        turn(0)
+    elif self.mode == 2:
+        returnToStart()             # if at the finish: comence shortest path search and return to start
+    elif self.mode == 3:
+        back_move()
+    elif self.mode == 4:
+        turn(3)
     else:
-        if self.mode < 2:               # check if we are at finish, if not do usual routine
-            if self.mode == 0:          
-                move()
-                measureMovedDistance()
-                checkIfFinish()
-            else:
-                turn(0)
-        else:
-            if self.mode == 2:
-                returnToStart()                   # if at the finish: comence shortest path search and return to start
-            else:
-                if self.mode == 3:
-                    back_move()
-                else:
-                    turn(3)
+        print("returned to start")
+        
 
 def move():
     resultFront, dist, *_ = sim.readProximitySensor(self.proxSensorFront) # Read the proximity sensor
@@ -238,23 +235,32 @@ def back_update():
         coords1 = self.mapGraph.graph[n1].get_coords()
         coords2 = self.mapGraph.graph[n2].get_coords()
         self.currDestination = coords2
-        print(f"moving to {self.currDestination}")
+        print(f"moving to {self.currDestination} from node {n1} to node {n2}")
                                                                                    # +
         x_dif = coords1[0] - coords2[0]                                            # x /\ , y +<>-
         y_dif = coords1[1] - coords2[1]                                            # - \/
+        
+        newOrientation = 0
         if np.abs(x_dif) > np.abs(y_dif):
             if x_dif > 0:
-                self.RobotOrientation = -180
+                newOrientation = -180
             else:
-                self.RobotOrientation = 0
+                newOrientation = 0
             self.dirr = 0
         else:
             if y_dif > 0:
-                self.RobotOrientation = -90
+                newOrientation = -90
             else:
-                self.RobotOrientation = 90
+                newOrientation = 90
             self.dirr = 1
-        self.mode = 4
+        
+        if newOrientation == self.RobotOrientation:
+            self.mode = 3
+        elif np.abs(newOrientation) == 180 and np.abs(self.RobotOrientation) == 180:
+            self.mode = 3
+        else:
+            self.RobotOrientation = newOrientation
+            self.mode = 4
     
 def turn(prev_mode):
     
