@@ -5,7 +5,11 @@ import numpy as np
 import cv2
 import heapq
 import pickle
+import networkx as nx
+import matplotlib.pyplot as plt
+import os
 
+plt.switch_backend('Agg')
 
 # Graph logic
 
@@ -37,12 +41,14 @@ class Node:
 
 
 class MazeGraph:
-    def __init__(self):
+    def __init__(self, output_dir):
         self.graph = {}
         # Robot's last visited node id
         self.last_active_node_id = None
         # Last inserted node id
         self.last_inserted_node_id = None
+        self.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
         
     def insert_node(self, node):
         # Check if node in this location does not already exist
@@ -50,7 +56,6 @@ class MazeGraph:
             for node_id, graph_node in self.graph.items():
                 if graph_node.is_same_node(node):
                     self.last_active_node_id = node_id
-                    print(f'Node already exists here! Last visited node: {node_id}')
                     return
         
         if self.last_inserted_node_id is None:
@@ -108,6 +113,37 @@ class MazeGraph:
             neighbours = self.graph[node_id].neighbours
             graph_str += f'Node_id: {node_id}, neighbours: {neighbours}\n'
         return graph_str
+    
+    def save_graph_to_file(self, shortest_path_nodes):
+        shortest_path_nodes = [str(n) for n in shortest_path_nodes]
+        adjadency_dict = {
+            str(node_id):
+                [str(neighbour_node_id) for neighbour_node_id in self.graph[node_id].neighbours]
+                for node_id in self.graph
+        }
+        g = nx.Graph(adjadency_dict)
+        #pos = nx.spring_layout(g)
+        pos = {}
+        for node_id in g.nodes:
+            graph_node = self.graph[int(node_id)]
+            x, y = graph_node.get_coords()
+            x_pos, y_pos = int(x*1000), int(y*1000)
+            pos[node_id] = (-y_pos, x_pos)
+        node_colors = ['lightgreen' if node in shortest_path_nodes
+            else 'lightblue' for node in g.nodes]
+        
+        nx.draw(g, pos=pos, node_color=node_colors, with_labels=True)
+        # Color path lines and add arrows for direction
+        edges = []
+        for i in range(len(shortest_path_nodes)-1, 0, -1):
+            node_a = shortest_path_nodes[i]
+            node_b = shortest_path_nodes[i-1]
+            edges.append((node_a, node_b))
+        nx.draw_networkx_edges(g, pos=pos, edgelist=edges, edge_color='lightgreen',
+            arrows=True, width=1,  arrowsize=20, arrowstyle='simple')
+        
+        output_path = os.path.join(self.output_dir, 'graph.jpg')
+        plt.savefig(output_path)
 
 def sysCall_init():
     # This is executed exactly once, the first time this script is executed
@@ -119,7 +155,7 @@ def sysCall_init():
     self.distanceXMoved = 0.0
     self.distanceYMoved = 0.0
     self.sampleRate = 0.01
-    self.mapGraph = MazeGraph()
+    self.mapGraph = MazeGraph(output_dir='C:\\Users\\irman\\OneDrive\\Stalinis kompiuteris\\7\\robotika\\robotikos-inzinerinis\\results')
     self.startNodeId = None
     self.finishNodeId = None
 
@@ -353,9 +389,11 @@ def returnToStart():
     sim.setJointTargetVelocity(self.leftMotor, 0)                                       
     sim.setJointTargetVelocity(self.rightMotor, 0)
     distance, path = calculateShortestDistance()
+    self.mapGraph.save_graph_to_file(shortest_path_nodes=path)
     self.PathBack = np.flip(np.array(path))
     back_update()
 
+#deprecated
 def restart():
     print("reached the end")                                # TODO implement 
     print("turning around and continuing traversal")
@@ -386,10 +424,8 @@ def measureMovedDistance():
     self.lastRobotCoords = currentRobotCoords
 
 def sampleEnvironmentToMemory(currentRobotCoords):
-    print('Extending graph!')
     node = Node(currentRobotCoords[0], currentRobotCoords[1])
     self.mapGraph.insert_node(node)
-    print(self.mapGraph)
 
 def sysCall_cleanup(): 
     simUI.destroy(self.ui)
