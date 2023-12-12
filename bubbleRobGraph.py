@@ -12,7 +12,6 @@ import os
 plt.switch_backend('Agg')
 
 # Graph logic
-
 class Node:
     def __init__(self, x, y, node_size=0.3):
         self.x = x
